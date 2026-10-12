@@ -1,0 +1,46 @@
+# Keep `main` a byte-exact mirror of the original author's repository.
+#
+# The scope is deliberately one branch. `custom/main` — our own line — is NOT
+# touched here: taking an upstream change into it is a decision with a time
+# attached to it, so it stays a manual `git merge main` on `custom/main`.
+#
+# This file lives on `custom/main`, which is the repository's default branch,
+# because a scheduled workflow only runs when its workflow file is present on the
+# default branch. `main` is kept pristine precisely so that advancing it is a
+# plain fast-forward push. No `--force` appears anywhere below, so this job can
+# never rewrite or lose a commit: it either advances `main` or fails loudly.
+name: sync upstream
+
+on:
+  schedule:
+    # Every two hours at :17, so a run delayed off the hour still lands off it.
+    - cron: '17 */2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  mirror-main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: custom/main
+          fetch-depth: 1
+
+      - name: Fast-forward main to the original author's main
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/T-Auto/dsh-ops.git
+          git fetch upstream --no-tags --prune
+          echo "upstream/main = $(git rev-parse --short refs/remotes/upstream/main)"
+          echo "our main      = $(git ls-remote origin refs/heads/main | cut -c1-7)"
+          # Fast-forward only. If `main` has diverged, this push is rejected and
+          # the job goes red — which is the alarm that someone committed to the
+          # mirror branch instead of to `custom/main`.
+          git push origin refs/remotes/upstream/main:refs/heads/main
